@@ -1,0 +1,6 @@
+"0","map_data <- bostonZips |>"
+"0","  left_join("
+"0","    contrib_by_zip,"
+"0","    by = c(""ZIP5"" = ""Zip"")"
+"0","  ) |>"
+"0","  filter(!is.na(`Tender Type Description`))"

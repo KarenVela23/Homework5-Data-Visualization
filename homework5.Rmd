@@ -1,0 +1,196 @@
+---
+title: "Homework 5"
+author: "Karen Velasquez"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+---
+
+```{r}
+
+library(flexdashboard)
+library(tidyverse)
+library(readxl)
+library(scales)
+library(sf)
+library(ggplot2)
+library(tidytext)
+library(wordcloud)
+library(RColorBrewer)
+library(igraph)
+library(ggraph)
+```
+
+# Part 1: Maps
+
+This section compares political contributions in Boston by ZIP code for two tender types: credit card and check. The contribution data are first aggregated by ZIP code and tender type, then joined to the Boston ZIP code map.
+
+```{r}
+
+bostonCont <- read_excel("BostonContrib.xlsx")
+
+bostonZips <- read_sf("zip_codes.json")
+
+```
+
+```{r}
+
+contrib_by_zip <- bostonCont |>
+  filter(`Tender Type Description` %in% c("Credit Card", "Check")) |>
+  group_by(Zip, `Tender Type Description`) |>
+  summarize(
+    total_amount = sum(Amount, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+map_data <- bostonZips |>
+  left_join(
+    contrib_by_zip,
+    by = c("ZIP5" = "Zip")
+  ) |>
+  filter(!is.na(`Tender Type Description`))
+```
+
+### Map of Boston Political Contributions
+
+```{r, fig.align='center', fig.width=8, fig.height=5}
+
+ggplot(map_data) +
+  geom_sf(
+    aes(fill = total_amount),
+    color = "white",
+    linewidth = 0.2
+  ) +
+  facet_wrap(~ `Tender Type Description`) +
+  scale_fill_stepsn(
+    colors = c("#DCEAF7", "#9ECAE1", "#6BAED6", "#2A9D8F", "#238B45"),
+    breaks = c(0, 50000, 100000, 150000, 200000, 250000),
+    labels = dollar_format(),
+    na.value = "grey90"
+  ) +
+  labs(
+    title = "Boston Political Contributions by ZIP Code",
+    subtitle = "Comparison of total contribution amounts for Check and Credit Card payments",
+    fill = "Total amount",
+    caption = "Source: Boston campaign contributions data"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+
+    plot.title = element_text(
+      size = 16,
+      face = "bold",
+      hjust = 0.5
+    ),
+    plot.subtitle = element_text(
+      size = 11,
+      hjust = 0.5,
+      margin = margin(b = 20)
+    ),
+
+    strip.text = element_text(
+      size = 12,
+      face = "bold",
+      margin = margin(t = 10, b = 10)
+    ),
+
+    legend.position = "right",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 9),
+
+    plot.caption = element_text(size = 8, hjust = 1),
+    panel.spacing = unit(0.8, "lines"),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+```
+
+Row {data-height=120}
+-----------------------------------------------------------------------
+
+
+> **Note:** Darker ZIP codes represent higher total contribution amounts. Both Check and Credit Card contributions are concentrated in a relatively small number of Boston ZIP codes. Credit Card contributions appear more spatially concentrated in central areas of the city, while Check contributions show a slightly more dispersed distribution across ZIP codes.
+
+
+# Part 2: Text
+
+In this section, I create text visualizations based on word frequencies and bigrams from a text about immigration titled *“The administration has detained 400,000 immigrants: What do we know about their children?”*
+
+
+Row
+-----------------------------------------------------------------------
+
+### Word Cloud
+
+```{r}
+
+text_data <- tibble(
+  line = read_lines("inmigration_text.txt")
+)
+
+word_counts <- text_data |>
+  unnest_tokens(word, line) |>
+  anti_join(stop_words, by = "word") |>
+  filter(!str_detect(word, "^[0-9]+$")) |>
+  count(word, sort = TRUE)
+
+wordcloud(
+  words = word_counts$word,
+  freq = word_counts$n,
+  max.words = 100,
+  colors = c("#00441B", "#006D2C", "#238B45", "#41AB5D", "#74C476")
+)
+mtext("Most frequent terms in the text", side = 3, line = 2.7, cex = 0.9, font = 1, adj = 0)
+```
+
+
+###  Bigram Co-occurrence Network
+
+```{r}
+
+bigrams <- text_data |>
+  unnest_tokens(bigram, line, token = "ngrams", n = 2) |>
+  separate(bigram, into = c("word1", "word2"), sep = " ") |>
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word) |>
+  filter(!str_detect(word1, "^[0-9]+$"),
+         !str_detect(word2, "^[0-9]+$")) |>
+  filter(!word1 %in% c("u.s", "400,000"),
+         !word2 %in% c("u.s", "400,000")) |>
+  count(word1, word2, sort = TRUE) |>
+  filter(n >= 3)
+
+bigram_graph <- bigrams |>
+  graph_from_data_frame()
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(
+    aes(edge_alpha = n),
+    color = "grey60",
+    show.legend = FALSE
+  ) +
+  geom_node_point(
+    size = 3,
+    color = "#238B45"
+  ) +
+  geom_node_text(
+    aes(label = name),
+    repel = TRUE,
+    size = 4
+  ) +
+  labs(
+  subtitle = "Words that appear together in the text"
+) +
+  theme_void()
+```
+
+Row {data-height=120}
+-----------------------------------------------------------------------
+
+> **Note:** The word cloud highlights the most frequent terms in the text, with “children,” “detention,” and “immigration” appearing most often. The bigram graph shows relationships between words that commonly appear together, suggesting that the text focuses on immigration enforcement, detention policies, and family separation.
